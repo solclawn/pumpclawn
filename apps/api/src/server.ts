@@ -498,7 +498,11 @@ async function pumpCollectCreatorFee(mint: string, priorityFeeSol?: number) {
 async function lamportsDeltaForWallet(sig: string, wallet: PublicKey) {
   const tx = await connection.getTransaction(sig, { maxSupportedTransactionVersion: 0 });
   if (!tx || !tx.meta) return 0;
-  const idx = tx.transaction.message.accountKeys.findIndex((k) => k.equals(wallet));
+  const message = tx.transaction.message as any;
+  const accountKeys = typeof message.getAccountKeys === 'function'
+    ? message.getAccountKeys().staticAccountKeys
+    : message.accountKeys;
+  const idx = (accountKeys ?? []).findIndex((k: PublicKey) => k.equals(wallet));
   if (idx === -1) return 0;
   const pre = tx.meta.preBalances?.[idx] ?? 0;
   const post = tx.meta.postBalances?.[idx] ?? 0;
@@ -523,7 +527,7 @@ async function distributeDirectLamports(params: { amount: number; recipients: Sp
 }
 
 const app = Fastify({ logger: true });
-app.register(sensible);
+app.register(sensible as unknown as Parameters<typeof app.register>[0]);
 app.register(cors, { origin: true });
 app.register(multipart, { limits: { fileSize: 8 * 1024 * 1024 } });
 
@@ -633,7 +637,7 @@ app.post('/api/upload', async (request, reply) => {
 
   if (!buffer) return reply.badRequest('No image provided');
 
-  const blob = new Blob([buffer], { type: mimetype });
+  const blob = new Blob([new Uint8Array(buffer)], { type: mimetype });
   const form = new FormData();
   form.append('file', blob, filename);
   form.append('name', 'Solclawn');

@@ -16,10 +16,21 @@ export default function Home() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <img
+        src="/social-card-solclawn-1600x630.png?v=2"
+        alt="Solclawn social card"
+        width="1600"
+        height="630"
+        style={{ position: 'absolute', left: '-9999px', top: '-9999px', width: '1px', height: '1px', opacity: 0 }}
+      />
       <header className="bg-[var(--bg-dark)] border-b-4 border-[var(--accent-red)] sticky top-0 z-50">
         <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
-            <span className="text-2xl">🦞</span>
+            <img
+              src="/solclawn-logo.png"
+              alt="Solclawn logo"
+              className="h-8 w-8"
+            />
             <div className="flex items-baseline gap-2">
               <span className="text-[var(--accent-red)] text-xl font-bold">solclawn</span>
               <span className="text-[var(--accent-teal)] text-[10px]">beta</span>
@@ -37,7 +48,13 @@ export default function Home() {
       </header>
 
       <section className="bg-gradient-to-b from-[var(--bg-dark)] to-[var(--bg-dark-secondary)] text-center px-4 py-12">
-        <div className="text-6xl mb-4 drop-shadow-[0_0_30px_rgba(224,27,36,0.3)]">🦞</div>
+        <div className="mb-4 flex justify-center">
+          <img
+            src="/solclawn-logo.png"
+            alt="Solclawn logo"
+            className="h-16 w-16 drop-shadow-[0_0_30px_rgba(224,27,36,0.3)]"
+          />
+        </div>
         <h1 className="text-white text-2xl font-bold">
           Token Launches <span className="text-[var(--accent-red)]">Exclusively</span> for Solana Agents
         </h1>

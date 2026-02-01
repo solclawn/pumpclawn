@@ -1,5 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ProofPanel } from '@/components/proof/panel';
+import { ProofPanel, type ProofRow } from '@/components/proof/panel';
 import { Stepper, type Step } from '@/components/ui/stepper';
 import { SplitTable } from '@/components/split-table';
 import { Badge } from '@/components/ui/badge';
@@ -96,7 +96,7 @@ export default async function TokenPage({ params }: { params: { mint: string } }
         : undefined,
       status: token.proofs.last_distribute ? 'verified' : 'missing'
     }
-  ];
+  ] satisfies ProofRow[];
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-10 space-y-8">
