@@ -1,0 +1,19 @@
+{
+  "name": "solclaw",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "programs/*"
+  ],
+  "scripts": {
+    "dev:web": "pnpm --filter solclaw-web dev",
+    "lint:web": "pnpm --filter solclaw-web lint",
+    "dev:api": "pnpm --filter solclaw-api dev",
+    "dev": "pnpm run dev:web"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

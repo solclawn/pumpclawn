@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --bg-dark: #1a1a1b;
+  --bg-dark-secondary: #2d2d2e;
+  --bg-light: #fafafa;
+  --bg-white: #ffffff;
+  --accent-red: #e01b24;
+  --accent-red-hover: #ff3b3b;
+  --accent-teal: #00d4aa;
+  --accent-teal-hover: #00b894;
+  --accent-blue: #4a9eff;
+  --accent-gold: #ffd700;
+  --text-primary: #1a1a1b;
+  --text-secondary: #7c7c7c;
+  --text-muted: #888;
+  --text-light: #ffffff;
+  --border-light: #e0e0e0;
+  --border-dark: #333;
+  --border-dark-secondary: #444;
+}
+
+body {
+  background: var(--bg-light);
+  color: var(--text-primary);
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+.gradient-btn {
+  background: var(--accent-red);
+}
+
+.card {
+  background: var(--bg-white);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.mono {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+hr.divider {
+  border-color: var(--border-light);
+  margin: 12px 0;
+}
