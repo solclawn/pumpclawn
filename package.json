@@ -11,7 +11,8 @@
     "dev:web": "pnpm --filter solclaw-web dev",
     "lint:web": "pnpm --filter solclaw-web lint",
     "dev:api": "pnpm --filter solclaw-api dev",
-    "dev": "pnpm run dev:web"
+    "dev": "pnpm run dev:web",
+    "deploy:fee-router": "cd programs/fee-router && anchor build && anchor deploy"
   },
   "engines": {
     "node": ">=20"

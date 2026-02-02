@@ -16,7 +16,8 @@
     "@solana/web3.js": "^1.95.3",
     "bs58": "^6.0.0",
     "dotenv": "^16.4.5",
-    "zod": "^3.22.4"
+    "zod": "^3.22.4",
+    "@coral-xyz/anchor": "^0.30.0"
   },
   "devDependencies": {
     "tsx": "^4.7.0",

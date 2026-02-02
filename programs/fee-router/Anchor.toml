@@ -1,0 +1,12 @@
+[toolchain]
+anchor_version = "0.29.0"
+
+[programs.mainnet]
+fee_router = "4ppsxyu3yBvh97DKU98PFTDb77bmz5utvcAkWVXSTMoB"
+
+[provider]
+cluster = "mainnet"
+wallet = "~/.config/solana/claim.json"
+
+[workspace]
+members = ["."]

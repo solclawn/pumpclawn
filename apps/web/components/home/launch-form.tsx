@@ -14,7 +14,7 @@ export function LaunchForm() {
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [wallet, setWallet] = useState<string | null>(null);
-  const [devBuy, setDevBuy] = useState('0.1');
+  const [devBuy, setDevBuy] = useState('0.01');
 
   const [name, setName] = useState('TEST');
   const [symbol, setSymbol] = useState('TEST');

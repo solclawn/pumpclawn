@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
-import { IBM_Plex_Mono } from 'next/font/google';
+import { IBM_Plex_Mono, Space_Grotesk } from 'next/font/google';
 import './globals.css';
 
 const plex = IBM_Plex_Mono({ subsets: ['latin'], weight: ['400', '500', '600', '700'], variable: '--font-mono' });
+const space = Space_Grotesk({ subsets: ['latin'], weight: ['400', '500', '600', '700'], variable: '--font-sans' });
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://solclawn.com'),
@@ -42,7 +43,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={plex.variable}>
+    <html lang="en" className={`${plex.variable} ${space.variable}`}>
       <body className="min-h-screen bg-[var(--background)] text-[var(--text-primary)]">
         {children}
       </body>

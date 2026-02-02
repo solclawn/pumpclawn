@@ -1,28 +1,41 @@
 # Fee Router (Anchor)
 
-Spec-only scaffold. Implements trust-minimized split of creator fee proceeds.
+Minimal on-chain router for creator fee distribution with proof storage.
 
-## Program state
-- authority: Pubkey
-- recipients: Vec<Pubkey>
-- bps: Vec<u16> (sum = 10_000)
-- vault: PDA (lamports)
-- bump
+## Program address
+Set after deploy. Update in:
+- `programs/fee-router/src/lib.rs` (`declare_id!`)
+- `.env` (`FEE_ROUTER_PROGRAM_ID`)
 
 ## Instructions
-- initialize_router(recipients, bps)
-- update_router(recipients, bps) — authority only
-- deposit() — move lamports into vault
-- distribute() — split vault balance by bps to recipients
+- `initialize_router(mint, recipients, bps)`
+- `update_router(recipients, bps)`
+- `deposit(amount)`
+- `distribute()`
+- `set_proof(kind, sig)`
+  - kind: 0=mint, 1=claim, 2=distribute
 
-## Events
-- RouterInitialized
-- RouterUpdated
-- Deposited
-- Distributed
+## Deploy (mainnet)
+```bash
+# install solana + anchor if missing
+# solana-install init && anchor install
 
-## TODO
-- Run `anchor init fee-router` inside this folder
-- Implement PDA vault + CPI-safe transfers
-- Add unit tests for bps sum & empty vault guard
-- Expose IDL for `packages/sdk`
+# set wallet (must hold SOL)
+solana config set --keypair ~/.config/solana/id.json
+solana config set --url https://api.mainnet-beta.solana.com
+
+cd programs/fee-router
+anchor build
+anchor deploy
+```
+
+Copy Program ID into:
+```
+FEE_ROUTER_ENABLED=true
+FEE_ROUTER_PROGRAM_ID=<PROGRAM_ID>
+```
+
+Restart API:
+```
+systemctl --user restart solclaw-api.service
+```

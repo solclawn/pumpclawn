@@ -13,6 +13,7 @@ import {
   Transaction,
   sendAndConfirmTransaction
 } from '@solana/web3.js';
+import * as anchor from '@coral-xyz/anchor';
 import bs58 from 'bs58';
 import fs from 'fs';
 
@@ -85,7 +86,15 @@ const cfg = {
   maxDescLen: Number(process.env.MAX_TOKEN_DESC_LEN ?? '500'),
   maxSymbolLen: Number(process.env.MAX_TOKEN_SYMBOL_LEN ?? '10'),
   platformWallet: process.env.PLATFORM_WALLET ?? '',
-  defaultDevBuySol: Number(process.env.DEFAULT_DEV_BUY_SOL ?? '0.1')
+  defaultDevBuySol: Number(process.env.DEFAULT_DEV_BUY_SOL ?? '0.1'),
+  allowedOrigins: (process.env.ALLOWED_ORIGINS ?? 'https://solclawn.com,https://www.solclawn.com')
+    .split(',')
+    .map((v) => v.trim())
+    .filter(Boolean),
+  rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? '60000'),
+  rateLimitMax: Number(process.env.RATE_LIMIT_MAX ?? '120'),
+  feeRouterProgramId: process.env.FEE_ROUTER_PROGRAM_ID ?? '',
+  feeRouterEnabled: (process.env.FEE_ROUTER_ENABLED ?? 'false') === 'true'
 };
 
 if (!cfg.pumpApiKey) {
@@ -99,6 +108,181 @@ const claimWallet = cfg.claimWalletSecret
   ? Keypair.fromSecretKey(bs58.decode(cfg.claimWalletSecret))
   : Keypair.generate();
 const connection = new Connection(cfg.rpcUrl, 'confirmed');
+const feeRouterProgramId = cfg.feeRouterProgramId ? new PublicKey(cfg.feeRouterProgramId) : null;
+
+const feeRouterIdl: any = {
+  version: '0.1.0',
+  name: 'fee_router',
+  instructions: [
+    {
+      name: 'initializeRouter',
+      accounts: [
+        { name: 'authority', isMut: true, isSigner: true },
+        { name: 'router', isMut: true, isSigner: false },
+        { name: 'vault', isMut: false, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false }
+      ],
+      args: [
+        { name: 'mint', type: 'publicKey' },
+        { name: 'recipients', type: { vec: 'publicKey' } },
+        { name: 'bps', type: { vec: 'u16' } }
+      ]
+    },
+    {
+      name: 'updateRouter',
+      accounts: [
+        { name: 'router', isMut: true, isSigner: false },
+        { name: 'authority', isMut: false, isSigner: true }
+      ],
+      args: [
+        { name: 'recipients', type: { vec: 'publicKey' } },
+        { name: 'bps', type: { vec: 'u16' } }
+      ]
+    },
+    {
+      name: 'deposit',
+      accounts: [
+        { name: 'payer', isMut: true, isSigner: true },
+        { name: 'router', isMut: true, isSigner: false },
+        { name: 'vault', isMut: true, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false }
+      ],
+      args: [{ name: 'amount', type: 'u64' }]
+    },
+    {
+      name: 'distribute',
+      accounts: [
+        { name: 'router', isMut: true, isSigner: false },
+        { name: 'vault', isMut: true, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false }
+      ],
+      args: []
+    },
+    {
+      name: 'setProof',
+      accounts: [
+        { name: 'router', isMut: true, isSigner: false },
+        { name: 'authority', isMut: false, isSigner: true }
+      ],
+      args: [
+        { name: 'kind', type: 'u8' },
+        { name: 'sig', type: { array: ['u8', 64] } }
+      ]
+    }
+  ],
+  accounts: [
+    {
+      name: 'router',
+      type: {
+        kind: 'struct',
+        fields: [
+          { name: 'authority', type: 'publicKey' },
+          { name: 'mint', type: 'publicKey' },
+          { name: 'recipients', type: { vec: 'publicKey' } },
+          { name: 'bps', type: { vec: 'u16' } },
+          { name: 'vaultBump', type: 'u8' },
+          { name: 'lastMint', type: { array: ['u8', 64] } },
+          { name: 'lastClaim', type: { array: ['u8', 64] } },
+          { name: 'lastDistribute', type: { array: ['u8', 64] } }
+        ]
+      }
+    }
+  ]
+};
+
+function getFeeRouterProgram() {
+  if (!feeRouterProgramId || !cfg.feeRouterEnabled) return null;
+  const provider = new anchor.AnchorProvider(
+    connection,
+    new anchor.Wallet(claimWallet),
+    { commitment: 'confirmed' }
+  );
+  const ProgramCtor: any = (anchor as any).Program;
+  return new ProgramCtor(feeRouterIdl, feeRouterProgramId, provider);
+}
+
+function deriveRouterPda(mint: PublicKey) {
+  if (!feeRouterProgramId) return null;
+  const [router] = PublicKey.findProgramAddressSync([Buffer.from('router'), mint.toBuffer()], feeRouterProgramId);
+  const [vault] = PublicKey.findProgramAddressSync([Buffer.from('vault'), mint.toBuffer()], feeRouterProgramId);
+  return { router, vault };
+}
+
+async function ensureRouterInitialized(token: TokenRecord) {
+  const program: any = getFeeRouterProgram();
+  if (!program || !feeRouterProgramId) return null;
+  const mint = new PublicKey(token.mint);
+  const pda = deriveRouterPda(mint);
+  if (!pda) return null;
+
+  const existing = await program.account?.router?.fetchNullable(pda.router);
+  if (existing) return pda;
+
+  const recipients = token.fee_split.map((r) => new PublicKey(r.wallet));
+  const bps = token.fee_split.map((r) => r.bps);
+  const sig = await program.methods
+    .initializeRouter(mint, recipients, bps)
+    .accounts({
+      authority: claimWallet.publicKey,
+      router: pda.router,
+      vault: pda.vault,
+      systemProgram: SystemProgram.programId
+    })
+    .signers([claimWallet])
+    .rpc();
+
+  token.proofs.router_init_tx = sig;
+  token.router_pda = pda.router.toBase58();
+  saveTokens();
+  return pda;
+}
+
+async function setProofOnchain(token: TokenRecord, kind: number, signature: string) {
+  const program: any = getFeeRouterProgram();
+  if (!program || !feeRouterProgramId) return;
+  const mint = new PublicKey(token.mint);
+  const pda = deriveRouterPda(mint);
+  if (!pda) return;
+  const sigBytes = bs58.decode(signature);
+  if (sigBytes.length !== 64) return;
+  await program.methods
+    .setProof(kind, Array.from(sigBytes))
+    .accounts({
+      router: pda.router,
+      authority: claimWallet.publicKey
+    })
+    .signers([claimWallet])
+    .rpc();
+}
+
+async function distributeViaRouter(token: TokenRecord, amount: number) {
+  const program: any = getFeeRouterProgram();
+  if (!program || !feeRouterProgramId) return null;
+  const pda = await ensureRouterInitialized(token);
+  if (!pda) return null;
+
+  const depositSig = await program.methods
+    .deposit(new anchor.BN(amount))
+    .accounts({
+      payer: claimWallet.publicKey,
+      router: pda.router,
+      vault: pda.vault,
+      systemProgram: SystemProgram.programId
+    })
+    .signers([claimWallet])
+    .rpc();
+
+  const distributeSig = await program.methods
+    .distribute()
+    .accounts({
+      router: pda.router,
+      vault: pda.vault,
+      systemProgram: SystemProgram.programId
+    })
+    .rpc();
+
+  return { depositSig, distributeSig };
+}
 
 const dataDir = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const tokensPath = path.join(dataDir, 'tokens.json');
@@ -526,10 +710,31 @@ async function distributeDirectLamports(params: { amount: number; recipients: Sp
   return sig;
 }
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, trustProxy: true });
 app.register(sensible as unknown as Parameters<typeof app.register>[0]);
-app.register(cors, { origin: true });
+app.register(cors, {
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (cfg.allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error('Origin not allowed'), false);
+  }
+});
 app.register(multipart, { limits: { fileSize: 8 * 1024 * 1024 } });
+
+const rateLimitBuckets = new Map<string, { count: number; resetAt: number }>();
+app.addHook('onRequest', async (request, reply) => {
+  const now = Date.now();
+  const key = request.ip;
+  const bucket = rateLimitBuckets.get(key);
+  if (!bucket || now > bucket.resetAt) {
+    rateLimitBuckets.set(key, { count: 1, resetAt: now + cfg.rateLimitWindowMs });
+    return;
+  }
+  bucket.count += 1;
+  if (bucket.count > cfg.rateLimitMax) {
+    reply.code(429).send({ error: 'rate_limited', retry_after_ms: Math.max(0, bucket.resetAt - now) });
+  }
+});
 
 app.get('/api/health', async () => ({ ok: true, time: new Date().toISOString() }));
 
@@ -762,6 +967,7 @@ app.post('/api/launch', async (request, reply) => {
         telegram: parsedLaunch.telegram
       });
 
+      const routerPda = feeRouterProgramId ? deriveRouterPda(new PublicKey(mint_public_key)) : null;
       const record: TokenRecord = {
         mint: mint_public_key,
         name: parsedLaunch.name,
@@ -780,7 +986,7 @@ app.post('/api/launch', async (request, reply) => {
           { wallet: parsedLaunch.wallet, bps: 8000 },
           { wallet: cfg.platformWallet || claimWallet.publicKey.toBase58(), bps: 2000 }
         ],
-        router_pda: 'pending-router-pda',
+        router_pda: routerPda?.router.toBase58(),
         pumpfun_url: `https://pump.fun/coin/${mint_public_key}`,
         proofs: {},
         created_at: new Date().toISOString(),
@@ -794,6 +1000,14 @@ app.post('/api/launch', async (request, reply) => {
       if (cached) {
         pendingPosts.delete(post_id);
         savePending();
+      }
+
+      if (cfg.feeRouterEnabled && feeRouterProgramId) {
+        try {
+          await ensureRouterInitialized(record);
+        } catch (err) {
+          request.log.warn({ err }, 'fee router init failed');
+        }
       }
 
       const txBase64 = await pumpCreateTokenLocal({
@@ -854,6 +1068,14 @@ app.post('/api/launch/confirm', async (request, reply) => {
   token.proofs.mint_tx = parsed.data.signature;
   token.status = 'minted';
   saveTokens();
+  if (cfg.feeRouterEnabled && feeRouterProgramId) {
+    try {
+      await ensureRouterInitialized(token);
+      await setProofOnchain(token, 0, parsed.data.signature);
+    } catch (err) {
+      request.log.warn({ err }, 'fee router mint proof failed');
+    }
+  }
   return { success: true };
 });
 
@@ -920,6 +1142,14 @@ app.post('/api/fees/claim', async (request, reply) => {
   token.claimable = claimed;
   token.proofs.last_claim = res.signature;
   saveTokens();
+    if (cfg.feeRouterEnabled && feeRouterProgramId) {
+      try {
+        await ensureRouterInitialized(token);
+        await setProofOnchain(token, 1, res.signature);
+      } catch (err) {
+        request.log.warn({ err }, 'fee router claim proof failed');
+      }
+    }
     return { success: true, mint: token.mint, claim_signature: res.signature, claimed_amount_lamports: claimed };
   } catch (err: any) {
     request.log.error(err);
@@ -941,10 +1171,29 @@ app.post('/api/fees/distribute', async (request, reply) => {
   if (amount <= 0) return reply.badRequest('No claimable amount to distribute');
 
   try {
-    const sig = await distributeDirectLamports({ amount, recipients: token.fee_split });
+    let sig = '';
+    let routerDepositSig: string | undefined;
+    if (cfg.feeRouterEnabled && feeRouterProgramId) {
+      const routed = await distributeViaRouter(token, amount);
+      if (routed) {
+        routerDepositSig = routed.depositSig;
+        sig = routed.distributeSig;
+      }
+    }
+    if (!sig) {
+      sig = await distributeDirectLamports({ amount, recipients: token.fee_split });
+    }
   token.claimable = 0;
   token.proofs.last_distribute = sig;
   saveTokens();
+    if (cfg.feeRouterEnabled && feeRouterProgramId) {
+      try {
+        await ensureRouterInitialized(token);
+        await setProofOnchain(token, 2, sig);
+      } catch (err) {
+        request.log.warn({ err }, 'fee router distribute proof failed');
+      }
+    }
     const distribution = token.fee_split.map((r) => ({
       wallet: r.wallet,
       lamports: Math.floor((amount * r.bps) / 10_000).toString()
@@ -953,6 +1202,7 @@ app.post('/api/fees/distribute', async (request, reply) => {
       success: true,
       mint: token.mint,
       router_pda: token.router_pda,
+      router_deposit_signature: routerDepositSig,
       distribution_signature: sig,
       distribution
     };

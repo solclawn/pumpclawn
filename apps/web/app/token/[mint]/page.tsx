@@ -152,6 +152,10 @@ export default async function TokenPage({ params }: { params: { mint: string } }
         </div>
 
         <div className="space-y-4">
+          <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-[var(--text-secondary)]">
+            <span>Fees & Proofs</span>
+            <span className="badge">on-chain</span>
+          </div>
           <ProofPanel items={proofItems} />
         </div>
       </div>
