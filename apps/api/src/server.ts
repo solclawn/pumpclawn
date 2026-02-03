@@ -118,11 +118,45 @@ const feeRouterIdl: any = {
       name: 'initializeRouter',
       accounts: [
         { name: 'authority', isMut: true, isSigner: true },
-        { name: 'mint', isMut: false, isSigner: false },
         { name: 'router', isMut: true, isSigner: false },
+        { name: 'vault', isMut: false, isSigner: false },
         { name: 'systemProgram', isMut: false, isSigner: false }
       ],
-      args: [{ name: 'mint', type: 'publicKey' }]
+      args: [
+        { name: 'mint', type: 'publicKey' },
+        { name: 'recipients', type: { vec: 'publicKey' } },
+        { name: 'bps', type: { vec: 'u16' } }
+      ]
+    },
+    {
+      name: 'updateRouter',
+      accounts: [
+        { name: 'router', isMut: true, isSigner: false },
+        { name: 'authority', isMut: false, isSigner: true }
+      ],
+      args: [
+        { name: 'recipients', type: { vec: 'publicKey' } },
+        { name: 'bps', type: { vec: 'u16' } }
+      ]
+    },
+    {
+      name: 'deposit',
+      accounts: [
+        { name: 'payer', isMut: true, isSigner: true },
+        { name: 'router', isMut: true, isSigner: false },
+        { name: 'vault', isMut: true, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false }
+      ],
+      args: [{ name: 'amount', type: 'u64' }]
+    },
+    {
+      name: 'distribute',
+      accounts: [
+        { name: 'router', isMut: true, isSigner: false },
+        { name: 'vault', isMut: true, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false }
+      ],
+      args: []
     },
     {
       name: 'setProof',
@@ -144,6 +178,9 @@ const feeRouterIdl: any = {
         fields: [
           { name: 'authority', type: 'publicKey' },
           { name: 'mint', type: 'publicKey' },
+          { name: 'recipients', type: { vec: 'publicKey' } },
+          { name: 'bps', type: { vec: 'u16' } },
+          { name: 'vaultBump', type: 'u8' },
           { name: 'lastMint', type: { array: ['u8', 64] } },
           { name: 'lastClaim', type: { array: ['u8', 64] } },
           { name: 'lastDistribute', type: { array: ['u8', 64] } }
@@ -167,7 +204,8 @@ function getFeeRouterProgram() {
 function deriveRouterPda(mint: PublicKey) {
   if (!feeRouterProgramId) return null;
   const [router] = PublicKey.findProgramAddressSync([Buffer.from('router'), mint.toBuffer()], feeRouterProgramId);
-  return { router };
+  const [vault] = PublicKey.findProgramAddressSync([Buffer.from('vault'), mint.toBuffer()], feeRouterProgramId);
+  return { router, vault };
 }
 
 async function ensureRouterInitialized(token: TokenRecord) {
@@ -180,12 +218,14 @@ async function ensureRouterInitialized(token: TokenRecord) {
   const existing = await program.account?.router?.fetchNullable(pda.router);
   if (existing) return pda;
 
+  const recipients = token.fee_split.map((r) => new PublicKey(r.wallet));
+  const bps = token.fee_split.map((r) => r.bps);
   const sig = await program.methods
-    .initializeRouter(mint)
+    .initializeRouter(mint, recipients, bps)
     .accounts({
       authority: claimWallet.publicKey,
-      mint,
       router: pda.router,
+      vault: pda.vault,
       systemProgram: SystemProgram.programId
     })
     .signers([claimWallet])
@@ -215,6 +255,34 @@ async function setProofOnchain(token: TokenRecord, kind: number, signature: stri
     .rpc();
 }
 
+async function distributeViaRouter(token: TokenRecord, amount: number) {
+  const program: any = getFeeRouterProgram();
+  if (!program || !feeRouterProgramId) return null;
+  const pda = await ensureRouterInitialized(token);
+  if (!pda) return null;
+
+  const depositSig = await program.methods
+    .deposit(new anchor.BN(amount))
+    .accounts({
+      payer: claimWallet.publicKey,
+      router: pda.router,
+      vault: pda.vault,
+      systemProgram: SystemProgram.programId
+    })
+    .signers([claimWallet])
+    .rpc();
+
+  const distributeSig = await program.methods
+    .distribute()
+    .accounts({
+      router: pda.router,
+      vault: pda.vault,
+      systemProgram: SystemProgram.programId
+    })
+    .rpc();
+
+  return { depositSig, distributeSig };
+}
 
 const dataDir = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const tokensPath = path.join(dataDir, 'tokens.json');
@@ -1103,10 +1171,21 @@ app.post('/api/fees/distribute', async (request, reply) => {
   if (amount <= 0) return reply.badRequest('No claimable amount to distribute');
 
   try {
-    const sig = await distributeDirectLamports({ amount, recipients: token.fee_split });
-    token.claimable = 0;
-    token.proofs.last_distribute = sig;
-    saveTokens();
+    let sig = '';
+    let routerDepositSig: string | undefined;
+    if (cfg.feeRouterEnabled && feeRouterProgramId) {
+      const routed = await distributeViaRouter(token, amount);
+      if (routed) {
+        routerDepositSig = routed.depositSig;
+        sig = routed.distributeSig;
+      }
+    }
+    if (!sig) {
+      sig = await distributeDirectLamports({ amount, recipients: token.fee_split });
+    }
+  token.claimable = 0;
+  token.proofs.last_distribute = sig;
+  saveTokens();
     if (cfg.feeRouterEnabled && feeRouterProgramId) {
       try {
         await ensureRouterInitialized(token);
@@ -1123,6 +1202,7 @@ app.post('/api/fees/distribute', async (request, reply) => {
       success: true,
       mint: token.mint,
       router_pda: token.router_pda,
+      router_deposit_signature: routerDepositSig,
       distribution_signature: sig,
       distribution
     };
