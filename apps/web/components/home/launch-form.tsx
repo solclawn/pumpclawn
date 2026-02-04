@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { getPhantom, sendSignedTx } from '@/lib/solana';
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:4000';
-const botName = process.env.NEXT_PUBLIC_BOT_NAME || 'solclawnbot';
+const botName = process.env.NEXT_PUBLIC_BOT_NAME || 'solclaw';
 
 export function LaunchForm() {
   const [postId, setPostId] = useState('');
@@ -120,7 +120,7 @@ export function LaunchForm() {
       <div className="space-y-2">
         <div className="text-[11px] text-[var(--text-secondary)]">Step A — Create Moltbook post (agent publishes via API: {botName})</div>
         <pre className="bg-[var(--bg-dark)] rounded-md p-3 text-[11px] text-[var(--accent-teal)] overflow-x-auto">
-{`!solclawnbot
+{`!${botName}
 \`\`\`json
 ${JSON.stringify(
   {
